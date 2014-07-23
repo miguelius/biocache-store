@@ -194,6 +194,14 @@
 					<groupId>au.org.ala</groupId>
 					<artifactId>ala-name-matching</artifactId>
 				</exclusion>
+				<exclusion>
+					<artifactId>stax-api</artifactId>
+					<groupId>javax.xml.stream</groupId>
+				</exclusion>
+				<exclusion>
+					<artifactId>stax-api</artifactId>
+					<groupId>stax</groupId>
+				</exclusion>
 			</exclusions>
 		</dependency>
 		<!-- ALA Name matching -->
@@ -369,12 +377,22 @@
 					<groupId>org.apache.hadoop</groupId>
 					<artifactId>hadoop-annotations</artifactId>
 				</exclusion>
+				<exclusion>
+					<groupId>org.codehaus.woodstox</groupId>
+					<artifactId>wstx-asl</artifactId>
+				</exclusion>
 			</exclusions>
 		</dependency>
 		<dependency>
 			<artifactId>solr-solrj</artifactId>
 			<groupId>org.apache.solr</groupId>
 			<version>${solr.version}</version>
+			<exclusions>
+				<exclusion>
+					<groupId>org.codehaus.woodstox</groupId>
+					<artifactId>wstx-asl</artifactId>
+				</exclusion>
+			</exclusions>
 		</dependency>
 		<!-- The following dependency is required for a SOLR embedded service only 
 			See http://lucene.472066.n3.nabble.com/EmbeddedSolrServer-java-lang-NoClassDefFoundError-javax-servlet-ServletRequest-td483937.html -->
