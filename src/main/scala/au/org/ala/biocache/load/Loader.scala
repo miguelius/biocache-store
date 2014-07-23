@@ -123,10 +123,7 @@ class Loader extends DataLoader {
         case "digir" => {
           logger.info("digir webservice loading")
           val l = new DiGIRLoader
-          if(!test)
-            l.load(dataResourceUid)
-          else
-            println("TESTING is not supported for DiGIR")
+          l.load(dataResourceUid, test)
         }
         case "flickr" => {
           logger.info("flickr webservice loading")

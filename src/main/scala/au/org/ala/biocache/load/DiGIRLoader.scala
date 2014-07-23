@@ -32,49 +32,51 @@ import org.slf4j.MDC
 import com.google.common.base.Optional
 import com.google.common.primitives.Bytes
 
-object DiGIRLoader {
+import au.org.ala.biocache.cmd.Tool
+import au.org.ala.biocache.model.FullRecord
+import au.org.ala.biocache.model.Versions
+import au.org.ala.biocache.util.OptionParser
+
+object DiGIRLoader extends Tool {
+
+  def cmd = "load-DiGIR"
+  def desc = "Load DiGIR."
 
   def main(args: Array[String]) {
-    val l = new DiGIRLoader
+    val LOG = LoggerFactory.getLogger(getClass());
 
-    l.load("dr30")
-  }
+    var dataResourceUid = ""
+    var updateLastChecked = true
+    var testFile = false
+    var logRowKeys = false
 
-}
+    val parser = new OptionParser(help) {
+      arg("data-resource-uid", "the data resource to import", { v: String => dataResourceUid = v })
+      booleanOpt("u", "updateLastChecked", "update registry with last loaded date", { v: Boolean => updateLastChecked = v })
+      opt("test", "test the file only do not load", { testFile = true })
+      opt("log", "log row keys to file - allows processing/indexing of changed records", { logRowKeys = true })
+    }
 
-object HttpCrawlClientProvider {
+    if (parser.parse(args)) {
+      val l = new DiGIRLoader
+      l.load(dataResourceUid, testFile)
+      try {
+        if (updateLastChecked) {
+          l.updateLastChecked(dataResourceUid)
+        }
+      } catch {
+        case e: Exception => e.printStackTrace
+      } finally {
+      }
 
-  val DEFAULT_HTTP_PORT = 80;
-
-  val CONNECTION_TIMEOUT_MSEC = 600000; // 10 mins
-  val MAX_TOTAL_CONNECTIONS = 500;
-  val MAX_TOTAL_PER_ROUTE = 20;
-
-  def newHttpCrawlClient(): HttpCrawlClient = {
-    val schemeRegistry = new SchemeRegistry();
-    schemeRegistry.register(new Scheme("http", DEFAULT_HTTP_PORT, PlainSocketFactory.getSocketFactory()));
-
-    val connectionManager = new PoolingClientConnectionManager(schemeRegistry);
-    connectionManager.setMaxTotal(MAX_TOTAL_CONNECTIONS);
-    connectionManager.setDefaultMaxPerRoute(MAX_TOTAL_PER_ROUTE);
-
-    val params = new BasicHttpParams();
-    params.setParameter(HttpConnectionParams.CONNECTION_TIMEOUT, CONNECTION_TIMEOUT_MSEC)
-    params.setParameter(HttpConnectionParams.SO_TIMEOUT, CONNECTION_TIMEOUT_MSEC)
-    params.setLongParameter(ClientPNames.CONN_MANAGER_TIMEOUT, CONNECTION_TIMEOUT_MSEC);
-    val httpClient = new DecompressingHttpClient(new DefaultHttpClient(connectionManager, params));
-
-    return new HttpCrawlClient(connectionManager, httpClient);
-  }
-
-  def HttpCrawlClientProvider() {
-    throw new UnsupportedOperationException("Can't initialize class");
+    }
   }
 }
 
 class DiGIRLoader extends DataLoader {
+  val LOG = LoggerFactory.getLogger(getClass());
 
-  def load(dataResourceUid: String) {
+  def load(dataResourceUid: String, test: Boolean) {
     val (protocol, urls, uniqueTerms, params, customParams, lastChecked) = retrieveConnectionParameters(dataResourceUid)
     val url = urls(0)
 
@@ -97,16 +99,24 @@ class DiGIRLoader extends DataLoader {
     val crawler =
       Crawler.newInstance(strategy, requestHandler, new DigirResponseHandler(), client, retryPolicy,
         NoLockFactory.getLock())
-
-    crawler.addListener(new AlaBiocacheListener().asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
-    crawler.addListener(new LoggingCrawlListener(config,null,null,0,null).asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
+    val emit = (record: Map[String, String]) => {
+      LOG.info(f"$record")
+      val fr = FullRecordMapper.createFullRecord("", record, Versions.RAW)
+      LOG.info(f"$fr")
+      if (!test) {
+    	  load( dataResourceUid, fr, uniqueTerms) 
+      }
+      return;
+    }
+    crawler.addListener(new AlaBiocacheListener(test, emit).asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
+    crawler.addListener(new LoggingCrawlListener(config, null, null, 0, null).asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
     crawler.crawl()
 
     println("done")
   }
 }
 
-class AlaBiocacheListener extends AbstractCrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]] {
+class AlaBiocacheListener(test: Boolean, emit: (Map[String, String]) => Unit) extends AbstractCrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]] {
   val LOG = LoggerFactory.getLogger(getClass());
 
   override def response(
@@ -116,6 +126,12 @@ class AlaBiocacheListener extends AbstractCrawlListener[ScientificNameRangeCrawl
     recordCount: Optional[java.lang.Integer],
     endOfRecords: Optional[java.lang.Boolean]): Unit = {
 
+    LOG.info(f"recordCount: ${recordCount}, endOfRecords: ${endOfRecords}")
+    val map = Map("scientificName" -> "macropus rufus")
+    emit(map)
+    if (!test) {
+      // do your work
+    }
     LOG.info("Received: {}", new String(Bytes.toArray(response)));
   }
 
@@ -202,5 +218,36 @@ class LoggingCrawlListener(
   }
 
 }
+
+object HttpCrawlClientProvider {
+
+  val DEFAULT_HTTP_PORT = 80;
+
+  val CONNECTION_TIMEOUT_MSEC = 600000; // 10 mins
+  val MAX_TOTAL_CONNECTIONS = 500;
+  val MAX_TOTAL_PER_ROUTE = 20;
+
+  def newHttpCrawlClient(): HttpCrawlClient = {
+    val schemeRegistry = new SchemeRegistry();
+    schemeRegistry.register(new Scheme("http", DEFAULT_HTTP_PORT, PlainSocketFactory.getSocketFactory()));
+
+    val connectionManager = new PoolingClientConnectionManager(schemeRegistry);
+    connectionManager.setMaxTotal(MAX_TOTAL_CONNECTIONS);
+    connectionManager.setDefaultMaxPerRoute(MAX_TOTAL_PER_ROUTE);
+
+    val params = new BasicHttpParams();
+    params.setParameter(HttpConnectionParams.CONNECTION_TIMEOUT, CONNECTION_TIMEOUT_MSEC)
+    params.setParameter(HttpConnectionParams.SO_TIMEOUT, CONNECTION_TIMEOUT_MSEC)
+    params.setLongParameter(ClientPNames.CONN_MANAGER_TIMEOUT, CONNECTION_TIMEOUT_MSEC);
+    val httpClient = new DecompressingHttpClient(new DefaultHttpClient(connectionManager, params));
+
+    return new HttpCrawlClient(connectionManager, httpClient);
+  }
+
+  def HttpCrawlClientProvider() {
+    throw new UnsupportedOperationException("Can't initialize class");
+  }
+}
+
 
 
