@@ -483,7 +483,7 @@
 			<artifactId>htmlunit</artifactId>
 			<version>2.5</version>
 		</dependency>
-		<!--  gbif crawler to access tapir/digir -->
+		<!-- gbif crawler to access tapir/digir -->
 		<dependency>
 			<groupId>org.gbif.crawler</groupId>
 			<artifactId>crawler</artifactId>
@@ -539,6 +539,16 @@
 						<dirty>-dirty</dirty>
 						<forceLongFormat>false</forceLongFormat>
 					</gitDescribe>
+				</configuration>
+			</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.1</version>
+				<configuration>
+					<verbose>true</verbose>
+					<fork>true</fork>
+					<compilerVersion>1.6</compilerVersion>
 				</configuration>
 			</plugin>
 			<!--<plugin> -->

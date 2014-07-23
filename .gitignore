@@ -6,3 +6,4 @@ src/main/resources/git.properties
 biocache.tgz
 
 temp/biocache-store-1.2-SNAPSHOT-distribution.zip
+/target

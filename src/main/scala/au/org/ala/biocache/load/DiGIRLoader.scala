@@ -1,233 +1,206 @@
 package au.org.ala.biocache.load
 
-import org.apache.commons.httpclient.HttpClient
-import java.net.URLEncoder
-import org.apache.commons.httpclient.methods.GetMethod
-import scala.xml.XML
-import au.org.ala.biocache.vocab.DwC
-import au.org.ala.biocache.model.Versions
+import java.net.URI
+import java.util.Date
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
-/**
- * A work in progress... not actually supporting paging ATM.
- *
- * We should look into wrapping the GBIF harvesting library.
- */
+import org.apache.commons.httpclient.params.HttpConnectionParams
+import org.apache.http.client.params.ClientPNames
+import org.apache.http.conn.scheme.PlainSocketFactory
+import org.apache.http.conn.scheme.Scheme
+import org.apache.http.conn.scheme.SchemeRegistry
+import org.apache.http.impl.client.DecompressingHttpClient
+import org.apache.http.impl.client.DefaultHttpClient
+import org.apache.http.impl.conn.PoolingClientConnectionManager
+import org.apache.http.params.BasicHttpParams
+import org.gbif.crawler.AbstractCrawlListener
+import org.gbif.crawler.CrawlConfiguration
+import org.gbif.crawler.CrawlContext
+import org.gbif.crawler.Crawler
+import org.gbif.crawler.client.HttpCrawlClient
+import org.gbif.crawler.protocol.digir.DigirCrawlConfiguration
+import org.gbif.crawler.protocol.digir.DigirResponseHandler
+import org.gbif.crawler.protocol.digir.DigirScientificNameRangeRequestHandler
+import org.gbif.crawler.retry.LimitedRetryPolicy
+import org.gbif.crawler.strategy.ScientificNameRangeCrawlContext
+import org.gbif.crawler.strategy.ScientificNameRangeStrategy
+import org.gbif.wrangler.lock.NoLockFactory
+import org.slf4j.LoggerFactory
+import org.slf4j.MDC
+
+import com.google.common.base.Optional
+import com.google.common.primitives.Bytes
+
 object DiGIRLoader {
 
   def main(args: Array[String]) {
     val l = new DiGIRLoader
-    l.load("dr95")
+
+    l.load("dr30")
+  }
+
+}
+
+object HttpCrawlClientProvider {
+
+  val DEFAULT_HTTP_PORT = 80;
+
+  val CONNECTION_TIMEOUT_MSEC = 600000; // 10 mins
+  val MAX_TOTAL_CONNECTIONS = 500;
+  val MAX_TOTAL_PER_ROUTE = 20;
+
+  def newHttpCrawlClient(): HttpCrawlClient = {
+    val schemeRegistry = new SchemeRegistry();
+    schemeRegistry.register(new Scheme("http", DEFAULT_HTTP_PORT, PlainSocketFactory.getSocketFactory()));
+
+    val connectionManager = new PoolingClientConnectionManager(schemeRegistry);
+    connectionManager.setMaxTotal(MAX_TOTAL_CONNECTIONS);
+    connectionManager.setDefaultMaxPerRoute(MAX_TOTAL_PER_ROUTE);
+
+    val params = new BasicHttpParams();
+    params.setParameter(HttpConnectionParams.CONNECTION_TIMEOUT, CONNECTION_TIMEOUT_MSEC)
+    params.setParameter(HttpConnectionParams.SO_TIMEOUT, CONNECTION_TIMEOUT_MSEC)
+    params.setLongParameter(ClientPNames.CONN_MANAGER_TIMEOUT, CONNECTION_TIMEOUT_MSEC);
+    val httpClient = new DecompressingHttpClient(new DefaultHttpClient(connectionManager, params));
+
+    return new HttpCrawlClient(connectionManager, httpClient);
+  }
+
+  def HttpCrawlClientProvider() {
+    throw new UnsupportedOperationException("Can't initialize class");
   }
 }
 
-/**
- * A work in progress...
- */
 class DiGIRLoader extends DataLoader {
 
   def load(dataResourceUid: String) {
-
-    val (protocol, urls, uniqueTerms, params, customParams,lastChecked) = retrieveConnectionParameters(dataResourceUid)
+    val (protocol, urls, uniqueTerms, params, customParams, lastChecked) = retrieveConnectionParameters(dataResourceUid)
     val url = urls(0)
 
-    val firstchars = (0 to 25).map(x => (x + 'A').toChar).toList
-    val secondchars = (0 to 25).map(x => (x + 'a').toChar).toList
+    //    val endpoint = new URI("http://84.204.46.10/digir/DiGIR.php")
+    val endpoint = new URI(url)
+    val code = params.get("resource").get //"ZIN_HerpNET"
 
-    val queryList = for {
-      firstChar <- firstchars
-      secondChar <- secondchars
-      if (secondChar < 'z')
-    } yield (firstChar.toString + secondChar.toString, firstChar.toString + (secondChar + 1).toChar.toString)
+    val gbifID = UUID.randomUUID() // not used
+    val attempt = 1 // not used
+    val manis = false // gbif specific, not used
+    val config = new DigirCrawlConfiguration(gbifID, attempt, endpoint, code, manis)
+    val context = new ScientificNameRangeCrawlContext()
+    val strategy = new ScientificNameRangeStrategy(context);
 
-    val retries = 3
+    val retryPolicy = new LimitedRetryPolicy(5, 2, 5, 2);
+    val requestHandler = new DigirScientificNameRangeRequestHandler(config);
 
-    queryList.foreach(range => {
+    val client = HttpCrawlClientProvider.newHttpCrawlClient();
 
-      val (start, end) = range
-      //retrieve all records for this name - requires paging
-      var startAt = 0
-      val pageSize = 10
-      var endOfRecord = doSearchRequest(dataResourceUid, uniqueTerms, url, params("resource"), start, end, startAt, pageSize)
+    val crawler =
+      Crawler.newInstance(strategy, requestHandler, new DigirResponseHandler(), client, retryPolicy,
+        NoLockFactory.getLock())
 
-      while (!endOfRecord) {
-        startAt += pageSize
-        endOfRecord = {
-          doSearchRequest(dataResourceUid, uniqueTerms, url, params("resource"), start, end, startAt, pageSize)
-        }
-      }
-    })
+    crawler.addListener(new AlaBiocacheListener().asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
+    crawler.addListener(new LoggingCrawlListener(config,null,null,0,null).asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
+    crawler.crawl()
 
     println("done")
   }
-
-  def doSearchRequest(dataResourceUid: String, uniqueTerms: List[String], url: String, resource: String, start: String, end: String, startAt: Int, pageSize: Int): Boolean = {
-    val request = createSearchRequest("1.0", "search", url, resource, start, end, startAt, pageSize)
-    //println(request.toString)
-    println(start + ", " + end)
-
-    val http = new HttpClient
-    val encodedRequest = URLEncoder.encode(request.toString)
-
-    val response = {
-      val get = new GetMethod(url + "?request=" + encodedRequest)
-
-      var counter = 0
-      var hasResponse = false
-      var response = ""
-      while (!hasResponse && counter < 3) {
-        try {
-          val status = http.executeMethod(get)
-          hasResponse = true
-          response = get.getResponseBodyAsString
-        } catch {
-          case _:Exception => println("Error in request: retrying.....")
-        }
-      }
-      response
-    }
-
-    if (response == "") return true
-
-    println("response:" + response)
-
-    try {
-      val xml = XML.loadString(response)
-
-      val records = xml \\ "record"
-
-      records.foreach(r => {
-
-        //map each element to new dwc terms
-        val map = r.child.map(el => {
-          if (!el.text.isEmpty && el.text != null && el.text.trim != "") {
-            if (!DwC.matchTerm(el.label).isEmpty) {
-              Some(DwC.matchTerm(el.label).get.canonical -> el.text)
-            } else {
-              println("cant match term: " + el.label)
-              None
-            }
-          } else {
-            None
-          }
-        }).filter(x => !x.isEmpty).map(y => y.get).toMap[String, String]
-
-        //retrieve the unique terms
-        val uniqueTermsValues = uniqueTerms.map(t => map.getOrElse(t, "")) //for (t <-uniqueTerms) yield map.getOrElse(t,"")
-        val fr = FullRecordMapper.createFullRecord("", map, Versions.RAW)
-        load(dataResourceUid, fr, uniqueTermsValues)
-      })
-
-      //end of records
-      (xml \\ "diagnostic").filter(x => (x \ "@code").text == "END_OF_RECORDS").text.toBoolean
-    } catch {
-      case _:Exception => println("Error processing response")
-    }
-    true
-  }
-
-  def performInventoryRequest(digirEndpoint: String, resourceName: String): List[String] = {
-    val metadataRequest = createInventoryRequest("1.0", digirEndpoint, resourceName)
-    val http = new HttpClient
-    val encodedRequest = URLEncoder.encode(metadataRequest.toString)
-    val url = digirEndpoint + "?request=" + encodedRequest
-    println(url)
-    val get = new GetMethod(url)
-    val status = http.executeMethod(get)
-    val response = get.getResponseBodyAsString
-    val xml = XML.loadString(response)
-    val scientificNames = xml \\ "ScientificName"
-    scientificNames.map(scientificName => scientificName.text).toList
-  }
-
-  def performMetadataRequest(digirEndpoint: String) {
-    val metadataRequest = createMetadataRequest("1.0", digirEndpoint)
-    val http = new HttpClient
-    val encodedRequest = URLEncoder.encode(metadataRequest.toString)
-    val get = new GetMethod(digirEndpoint + "?request=" + encodedRequest)
-    val status = http.executeMethod(get)
-    val response = get.getResponseBodyAsString
-    val xml = XML.loadString(response)
-    val resources = xml \\ "resource"
-    resources.foreach(resource => {
-      val name = (resource \ "name").text
-      val code = (resource \ "code").text
-      val website = (resource \ "relatedInformation").text
-      val citation = (resource \ "citation").text
-      val rights = (resource \ "useRestrictions").text
-      println(code + " : " + name)
-    })
-  }
-
-  def createMetadataRequest(version: String, destination: String) = {
-    <request xmlns='http://digir.net/schema/protocol/2003/1.0' xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:digir='http://digir.net/schema/protocol/2003/1.0'>
-      <header>
-        <version>{ version }</version>
-        <sendTime>20030421T170441.431Z</sendTime>
-        <source>127.0.0.1</source>
-        <destination>{ destination }</destination>
-        <type>metadata</type>
-      </header>
-    </request>
-  }
-
-  def createInventoryRequest(version: String, destination: String, resource: String) = {
-    <request xmlns='http://digir.net/schema/protocol/2003/1.0' xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:digir='http://digir.net/schema/protocol/2003/1.0'>
-      <header>
-        <version>{ version }</version>
-        <sendTime>2011-07-03T19:14:58-05:00</sendTime>
-        <source>127.0.0.1</source>
-        <destination resource={ resource }>{ destination }</destination>
-        <type>inventory</type>
-      </header>
-      <inventory xmlns:dwc='http://digir.net/schema/conceptual/darwin/2003/1.0'>
-        <dwc:ScientificName/>
-        <count>false</count>
-      </inventory>
-    </request>
-  }
-
-  def createSearchRequest(version: String, requestType: String, destination: String, resource: String, lower: String, upper: String, limit: Int = 10, startAt: Int = 0, count: Int = 10) = {
-
-    def greaterThan(lower: String) = {
-      <greaterThanOrEquals>
-        <dwc:ScientificName>{ lower }</dwc:ScientificName>
-      </greaterThanOrEquals>
-    }
-
-    def lessThan(upper: String) = {
-      <lessThanOrEquals>
-        <dwc:ScientificName>{ upper }</dwc:ScientificName>
-      </lessThanOrEquals>
-    }
-
-    <request xmlns='http://digir.net/schema/protocol/2003/1.0' xmlns:xsd='http://www.w3.org/2001/XMLSchema' xmlns:xsi='http://www.w3.org/2001/XMLSchema-instance' xmlns:digir='http://digir.net/schema/protocol/2003/1.0' xmlns:darwin='http://digir.net/schema/conceptual/darwin/2003/1.0' xmlns:dwc='http://digir.net/schema/conceptual/darwin/2003/1.0' xsi:schemaLocation='http://digir.net/schema/protocol/2003/1.0 http://digir.sourceforge.net/schema/protocol/2003/1.0/digir.xsd http://digir.net/schema/conceptual/darwin/2003/1.0 http://digir.sourceforge.net/schema/conceptual/darwin/2003/1.0/darwin2.xsd'>
-      <header>
-        <version>{ version }</version>
-        <sendTime>2011-07-03T19:14:58-05:00</sendTime>
-        <source>127.0.0.1</source>
-        <destination resource={ resource }>{ destination }</destination>
-        <type>{ requestType }</type>
-      </header>
-      <search>
-        <filter>
-          {
-            if (lower != null && upper != null) {
-              <and>
-                { greaterThan(lower) }
-                { lessThan(upper) }
-              </and>
-            } else if (lower != null) {
-              { greaterThan(lower) }
-            } else if (upper != null) {
-              { lessThan(upper) }
-            }
-          }
-        </filter>
-        <records limit={ limit.toString } startAt={ startAt.toString }>
-          <structure schemaLocation="http://digir.sourceforge.net/schema/conceptual/darwin/full/2003/1.0/darwin2full.xsd"/>
-        </records>
-        <count>true</count>
-      </search>
-    </request>
-  }
 }
+
+class AlaBiocacheListener extends AbstractCrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]] {
+  val LOG = LoggerFactory.getLogger(getClass());
+
+  override def response(
+    response: java.util.List[java.lang.Byte],
+    retry: Int,
+    duration: Long,
+    recordCount: Optional[java.lang.Integer],
+    endOfRecords: Optional[java.lang.Boolean]): Unit = {
+
+    LOG.info("Received: {}", new String(Bytes.toArray(response)));
+  }
+
+}
+
+class LoggingCrawlListener(
+  val configuration: CrawlConfiguration,
+  var lastContext: CrawlContext,
+  var lastRequest: String,
+
+  var totalRecordCount: Int,
+
+  var startDate: java.util.Date) extends AbstractCrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]] {
+
+  val LOG = LoggerFactory.getLogger(getClass());
+
+  MDC.put("datasetKey", configuration.getDatasetKey().toString());
+  MDC.put("attempt", String.valueOf(configuration.getAttempt()));
+
+  override def error(msg: String) {
+    LOG.warn("error during crawling: [{}], last request [{}], message [{}]", lastContext, lastRequest, msg);
+  }
+
+  override def error(e: Throwable) {
+    LOG.warn("error during crawling: [{}], last request [{}]", lastContext, lastRequest, e);
+  }
+
+  override def finishCrawlAbnormally() {
+    finishCrawl(FinishReason.ABORT);
+  }
+
+  override def finishCrawlNormally() {
+    finishCrawl(FinishReason.NORMAL);
+  }
+
+  override def finishCrawlOnUserRequest() {
+    finishCrawl(FinishReason.USER_ABORT);
+  }
+
+  override def progress(context: ScientificNameRangeCrawlContext) {
+    lastRequest = null;
+    lastContext = context;
+    LOG.info(f"now beginning to crawl [${context}]");
+  }
+
+  override def request(req: String, retry: Int) {
+    LOG.info(f"requested page for [${lastContext}], retry [${retry}], request [${req}]");
+    lastRequest = req;
+  }
+
+  override def response(
+    response: java.util.List[java.lang.Byte],
+    retry: Int,
+    duration: Long,
+    recordCount: Optional[java.lang.Integer],
+    endOfRecords: Optional[java.lang.Boolean]): Unit = {
+    totalRecordCount += recordCount.or(0);
+    val took = TimeUnit.MILLISECONDS.toSeconds(duration)
+    LOG.info(f"got response for [${lastContext}], records [${recordCount}], endOfRecords [${endOfRecords}], retry [${retry}], took [${took}s]")
+  }
+
+  override def startCrawl() {
+    this.startDate = new Date();
+    LOG.info("started crawl");
+  }
+
+  def finishCrawl(reason: FinishReason.Value) {
+    val finishDate = new Date();
+    val minutes = (finishDate.getTime() - startDate.getTime()) / (60 * 1000);
+    LOG.info(
+      f"finished crawling with a total of [${totalRecordCount}] records, reason [${reason}], started at [${startDate}], finished at [${finishDate}], took [${minutes}] minutes");
+
+    MDC.remove("datasetKey");
+    MDC.remove("attempt");
+  }
+
+  object FinishReason extends Enumeration {
+    type FinishReason = Value
+
+    val NORMAL = Value("Normal")
+    val USER_ABORT = Value("User Abort")
+    val ABORT = Value("Abort")
+    val UNKNOWN = Value("Unknown")
+  }
+
+}
+
+
