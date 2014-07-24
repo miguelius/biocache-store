@@ -84,12 +84,14 @@ class DiGIRLoader extends DataLoader {
     val retryPolicy = new LimitedRetryPolicy(5, 2, 5, 2)
     val requestHandler = new DigirScientificNameRangeRequestHandler(config)
 
-    val client = HttpCrawlClientProvider.newHttpCrawlClient()
+    val client = HttpCrawlClientProvider.newHttpCrawlClient(endpoint.getPort())
 
     val crawler = Crawler.newInstance(strategy, requestHandler, new DigirResponseHandler(), client, retryPolicy, NoLockFactory.getLock)
 
     val emit = (record: Map[String, String]) => {
+      LOG.info(f"$record")
       val fr = FullRecordMapper.createFullRecord("", record, Versions.RAW)
+      LOG.info(f"$fr")
       if (!test) {
     	  if (load( dataResourceUid, fr, uniqueTerms)) {
     	    LOG.info(f"$dataResourceUid stored successfully")
@@ -223,9 +225,10 @@ object HttpCrawlClientProvider {
   val MAX_TOTAL_CONNECTIONS = 500
   val MAX_TOTAL_PER_ROUTE = 20
 
-  def newHttpCrawlClient(): HttpCrawlClient = {
+  def newHttpCrawlClient(port : Int=DEFAULT_HTTP_PORT): HttpCrawlClient = {
     val schemeRegistry = new SchemeRegistry()
-    schemeRegistry.register(new Scheme("http", DEFAULT_HTTP_PORT, PlainSocketFactory.getSocketFactory))
+    
+    schemeRegistry.register(new Scheme("http", port, PlainSocketFactory.getSocketFactory))
 
     val connectionManager = new PoolingClientConnectionManager(schemeRegistry)
     connectionManager.setMaxTotal(MAX_TOTAL_CONNECTIONS)
