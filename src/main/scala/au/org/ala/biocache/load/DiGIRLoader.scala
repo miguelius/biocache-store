@@ -4,7 +4,6 @@ import java.net.URI
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.TimeUnit
-
 import org.apache.commons.httpclient.params.HttpConnectionParams
 import org.apache.http.client.params.ClientPNames
 import org.apache.http.conn.scheme.PlainSocketFactory
@@ -18,6 +17,10 @@ import org.gbif.crawler.AbstractCrawlListener
 import org.gbif.crawler.CrawlConfiguration
 import org.gbif.crawler.CrawlContext
 import org.gbif.crawler.Crawler
+import scala.xml._ 
+
+import scala.collection.JavaConverters._
+
 import org.gbif.crawler.client.HttpCrawlClient
 import org.gbif.crawler.protocol.digir.DigirCrawlConfiguration
 import org.gbif.crawler.protocol.digir.DigirResponseHandler
@@ -28,14 +31,13 @@ import org.gbif.crawler.strategy.ScientificNameRangeStrategy
 import org.gbif.wrangler.lock.NoLockFactory
 import org.slf4j.LoggerFactory
 import org.slf4j.MDC
-
 import com.google.common.base.Optional
 import com.google.common.primitives.Bytes
-
 import au.org.ala.biocache.cmd.Tool
 import au.org.ala.biocache.model.FullRecord
 import au.org.ala.biocache.model.Versions
 import au.org.ala.biocache.util.OptionParser
+import com.google.protobuf.ByteString
 
 object DiGIRLoader extends Tool {
 
@@ -104,9 +106,12 @@ class DiGIRLoader extends DataLoader {
       val fr = FullRecordMapper.createFullRecord("", record, Versions.RAW)
       LOG.info(f"$fr")
       if (!test) {
-    	  load( dataResourceUid, fr, uniqueTerms) 
+    	  if (load( dataResourceUid, fr, uniqueTerms)) {
+    	    LOG.info(f"$dataResourceUid stored successfully")
+    	  } else {
+    		LOG.info(f"Problems storing $dataResourceUid")
+    	  }
       }
-      return;
     }
     crawler.addListener(new AlaBiocacheListener(test, emit).asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
     crawler.addListener(new LoggingCrawlListener(config, null, null, 0, null).asInstanceOf[org.gbif.crawler.CrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]]])
@@ -127,10 +132,17 @@ class AlaBiocacheListener(test: Boolean, emit: (Map[String, String]) => Unit) ex
     endOfRecords: Optional[java.lang.Boolean]): Unit = {
 
     LOG.info(f"recordCount: ${recordCount}, endOfRecords: ${endOfRecords}")
-    val map = Map("scientificName" -> "macropus rufus")
-    emit(map)
-    if (!test) {
-      // do your work
+    if (0 < recordCount.get()) {
+	    val xmlResponseAsString = new String(Bytes.toArray(response))
+	    val xmlResponse = XML.loadString(xmlResponseAsString)
+	    val records = xmlResponse \\ "record"
+	    val map = Map("scientificName" -> "macropus rufus")
+	    emit(map)
+
+	    //records.map(f)
+	    if (!test) {
+	      // do your work
+	    }
     }
     LOG.info("Received: {}", new String(Bytes.toArray(response)));
   }
