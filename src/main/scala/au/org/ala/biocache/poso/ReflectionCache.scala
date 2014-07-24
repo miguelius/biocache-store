@@ -25,7 +25,7 @@ object ReflectionCache {
            val isAPoso = !(getter.getReturnType.getInterfaces.forall(i => i == classOf[POSO]))
            if (isAPoso) {
              val poso = getter.invoke(cposo).asInstanceOf[POSO]
-             poso.propertyNames.foreach(name => map += (name -> getter))
+             poso.propertyNames.foreach(name => map += (name.toLowerCase -> getter))
            }
          } catch {
            case e: Exception =>
@@ -49,7 +49,7 @@ object ReflectionCache {
          try {
            val getter = poso.getClass.getDeclaredMethod("get" + StringUtils.capitalize(name))
            val setter = poso.getClass.getDeclaredMethod("set" + StringUtils.capitalize(name), field.getType)
-           Some((name -> ModelProperty(name, field.getType.getName, getter, setter)))
+           Some((name.toLowerCase -> ModelProperty(name, field.getType.getName, getter, setter)))
          } catch {
            case e: Exception => None
          }

@@ -12,16 +12,16 @@ trait CompositePOSO extends POSO {
   val posoGetterLookup = ReflectionCache.getCompositeLookup(this)
   val nestedProperties = posoGetterLookup.keys
 
-  override def hasProperty(name: String) = (!lookup.get(name).isEmpty || !posoGetterLookup.get(name).isEmpty)
+  override def hasProperty(name: String) = (!lookup.get(name.toLowerCase).isEmpty || !posoGetterLookup.get(name.toLowerCase).isEmpty)
 
-  def hasNestedProperty(name: String) = !posoGetterLookup.get(name).isEmpty
+  def hasNestedProperty(name: String) = !posoGetterLookup.get(name.toLowerCase).isEmpty
 
   override def getPropertyNames: List[String] = nestedProperties.toList
 
   override def setProperty(name: String, value: String) : Boolean = {
 
     var success = true
-    lookup.get(name) match {
+    lookup.get(name.toLowerCase) match {
 
       case Some(property) => {
         //println(name + " :  " + property.typeName + " : " +  value)
@@ -76,13 +76,13 @@ trait CompositePOSO extends POSO {
     success
   }
 
-  override def getProperty(name: String): Option[String] = lookup.get(name) match {
+  override def getProperty(name: String): Option[String] = lookup.get(name.toLowerCase) match {
     case Some(property) => Some(property.getter.invoke(this).toString)
     case None => getNestedProperty(name)
   }
 
   def getNestedProperty(name: String): Option[String] = {
-    val getter = posoGetterLookup.get(name)
+    val getter = posoGetterLookup.get(name.toLowerCase)
     getter match {
       case Some(method) => {
         val poso = method.invoke(this).asInstanceOf[POSO]
@@ -93,7 +93,7 @@ trait CompositePOSO extends POSO {
   }
 
   def setNestedProperty(name: String, value: String) {
-    val getter = posoGetterLookup.get(name)
+    val getter = posoGetterLookup.get(name.toLowerCase)
     getter match {
       case Some(method) => {
         val poso = method.invoke(this).asInstanceOf[POSO]

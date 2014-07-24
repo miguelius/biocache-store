@@ -167,10 +167,15 @@ object FullRecordMapper {
     fullRecord.firstLoaded = fields.getOrElse("firstLoaded","")
     //val miscProperties = new HashMap[String,String]()
 
-    fields.keySet.foreach( fieldName => {
+    fields.keySet.foreach( declField => {
+
+      // 'class' is a reserved word, so we need to jump through a hoop to make it work
+      // The 'Classification' object declares class as 'classs'
+      val fieldName = if (declField.toLowerCase == "class") "classs" else declField
+
       //ascertain which term should be associated with which object
       //println("field name: " + fieldName)
-      val fieldValue = fields.getOrElse(fieldName, "").trim
+      val fieldValue = fields.getOrElse(declField, "").trim
       //only set the value if it is no null or empty string
       if (fieldValue != "") {
         fieldName match {

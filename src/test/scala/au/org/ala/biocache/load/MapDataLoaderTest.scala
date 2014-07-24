@@ -14,6 +14,7 @@
  */
 package au.org.ala.biocache.load
 
+import au.org.ala.biocache.model.Versions
 import au.org.ala.biocache.{Config, ConfigFunSuite}
 import java.util
 import org.junit.runner.RunWith
@@ -21,6 +22,7 @@ import org.scalatest.junit.JUnitRunner
 
 @RunWith(classOf[JUnitRunner])
 class MapDataLoaderTest extends ConfigFunSuite {
+
   test("map load with dwc substitution"){
     val loader = new MapDataLoader
     val map = Map("occurrenceId"->"myid","scientificName"->"Macropus rufus","eventDate"->"2014-04-01","imageLicence"->"CC", "commonName"->"Red Kangaroo")
@@ -32,4 +34,36 @@ class MapDataLoaderTest extends ConfigFunSuite {
     expectResult(Some("CC")){rights}
     expectResult(Some("Red Kangaroo")){Config.persistenceManager.get("drnq|myid","occ","vernacularName")}
   }
+
+  test("mapper case test 1") {
+    val map = Map("scientificName"->"Macropus rufus")
+    val fr = FullRecordMapper.createFullRecord("", map, Versions.RAW)
+
+    println(f"${fr.classification.scientificName}")
+
+    expectResult("Macropus rufus") {
+      fr.classification.scientificName
+    }
+  }
+
+  test("mapper case test 2") {
+    val map = Map("ScientificName"->"Macropus rufus")
+    val fr = FullRecordMapper.createFullRecord("", map, Versions.RAW)
+
+    println(f"${fr.classification.scientificName}")
+
+    expectResult("Macropus rufus") {
+      fr.classification.scientificName
+    }
+  }
+
+  test("mapper case test class -> classs") {
+    val map = Map("class"->"Arthropoda")
+    val fr = FullRecordMapper.createFullRecord("", map, Versions.RAW)
+    expectResult("Arthropoda") {
+      fr.classification.classs
+    }
+  }
+
+
 }

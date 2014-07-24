@@ -22,9 +22,9 @@ trait POSO {
 
   val propertyNames = lookup.keys
 
-  def hasProperty(name: String) = !lookup.get(name).isEmpty
+  def hasProperty(name: String) = !lookup.get(name.toLowerCase).isEmpty
 
-  def setProperty(name: String, value: String) = lookup.get(name) match {
+  def setProperty(name: String, value: String) = lookup.get(name.toLowerCase) match {
     case Some(property) => {
       property.typeName match {
         case "java.lang.String" => property.setter.invoke(this, value)
@@ -64,7 +64,7 @@ trait POSO {
     case None => {} //println("Property not mapped: " +name +", on " + this.getClass.getName)
   }
 
-  def getProperty(name: String): Option[String] = lookup.get(name) match {
+  def getProperty(name: String): Option[String] = lookup.get(name.toLowerCase) match {
 
     case Some(property) => {
       val value = {
