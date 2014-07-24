@@ -89,9 +89,7 @@ class DiGIRLoader extends DataLoader {
     val crawler = Crawler.newInstance(strategy, requestHandler, new DigirResponseHandler(), client, retryPolicy, NoLockFactory.getLock)
 
     val emit = (record: Map[String, String]) => {
-      LOG.info(f"$record")
       val fr = FullRecordMapper.createFullRecord("", record, Versions.RAW)
-      LOG.info(f"$fr")
       if (!test) {
     	  if (load( dataResourceUid, fr, uniqueTerms)) {
     	    LOG.info(f"$dataResourceUid stored successfully")
