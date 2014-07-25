@@ -1,13 +1,13 @@
 package au.org.ala.biocache.load
 
 import java.net.URI
-import java.util
 import java.util.{Date, UUID}
 import java.util.concurrent.TimeUnit
 
 import au.org.ala.biocache.cmd.Tool
 import au.org.ala.biocache.model.Versions
 import au.org.ala.biocache.util.OptionParser
+import au.org.ala.biocache.vocab.DwC
 import com.google.common.base.Optional
 import com.google.common.primitives.Bytes
 import org.apache.commons.httpclient.params.HttpConnectionParams
@@ -84,16 +84,15 @@ class DiGIRLoader extends DataLoader {
     val retryPolicy = new LimitedRetryPolicy(5, 2, 5, 2)
     val requestHandler = new DigirScientificNameRangeRequestHandler(config)
 
-    val client = HttpCrawlClientProvider.newHttpCrawlClient(endpoint.getPort())
+    val client = HttpCrawlClientProvider.newHttpCrawlClient(endpoint.getPort)
 
     val crawler = Crawler.newInstance(strategy, requestHandler, new DigirResponseHandler(), client, retryPolicy, NoLockFactory.getLock)
 
     val emit = (record: Map[String, String]) => {
-      LOG.info(f"$record")
       val fr = FullRecordMapper.createFullRecord("", record, Versions.RAW)
-      LOG.info(f"$fr")
       if (!test) {
-    	  if (load( dataResourceUid, fr, uniqueTerms)) {
+        val uniqueTermsValues = uniqueTerms.map(t => record.getOrElse(t, ""))
+    	  if (load(dataResourceUid, fr, uniqueTermsValues)) {
     	    LOG.info(f"$dataResourceUid stored successfully")
     	  } else {
     		  LOG.info(f"Problems storing $dataResourceUid")
@@ -109,7 +108,9 @@ class DiGIRLoader extends DataLoader {
 }
 
 class AlaBiocacheListener(test: Boolean, emit: (Map[String, String]) => Unit) extends AbstractCrawlListener[ScientificNameRangeCrawlContext, String, java.util.List[java.lang.Byte]] {
+
   val LOG = LoggerFactory.getLogger(getClass)
+  val DIGIR_DWC_NAMESPACE = "http://digir.net/schema/conceptual/darwin/2003/1.0"
 
   override def response(
     response: java.util.List[java.lang.Byte],
@@ -122,10 +123,20 @@ class AlaBiocacheListener(test: Boolean, emit: (Map[String, String]) => Unit) ex
     if (0 < recordCount.get()) {
 	    val xmlResponseAsString = new String(Bytes.toArray(response))
 	    val xmlResponse = XML.loadString(xmlResponseAsString)
+
 	    val records = xmlResponse \\ "record"
 
 	    records.map((record) => {
-        val fieldMap = record.child.filter((node: Node) => { node.prefix == "darwin" && StringUtils.isNotEmpty(node.text) }).map( (x:Node) => { (x.label, x.text) }).toMap[String, String]
+        val fieldMap = record.child.filter((node: Node) => {
+          StringUtils.isNotEmpty(node.text)
+        }).map( (x:Node) => {
+          val fieldname = DwC.matchTerm(x.label) match {
+            case Some(term) => term.canonical
+            case None => x.label
+          }
+          (fieldname, x.text)
+        }).toMap[String, String]
+
         emit(fieldMap)
       })
 
@@ -225,10 +236,10 @@ object HttpCrawlClientProvider {
   val MAX_TOTAL_CONNECTIONS = 500
   val MAX_TOTAL_PER_ROUTE = 20
 
-  def newHttpCrawlClient(port : Int=DEFAULT_HTTP_PORT): HttpCrawlClient = {
+  def newHttpCrawlClient(port: Int = -1): HttpCrawlClient = {
     val schemeRegistry = new SchemeRegistry()
-    
-    schemeRegistry.register(new Scheme("http", port, PlainSocketFactory.getSocketFactory))
+    val actualPort = if (port < 0) DEFAULT_HTTP_PORT else port
+    schemeRegistry.register(new Scheme("http", actualPort, PlainSocketFactory.getSocketFactory))
 
     val connectionManager = new PoolingClientConnectionManager(schemeRegistry)
     connectionManager.setMaxTotal(MAX_TOTAL_CONNECTIONS)

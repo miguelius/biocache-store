@@ -139,22 +139,22 @@ trait DataLoader {
       uniqueId
   }
 
-  def load(dataResourceUid:String, fr:FullRecord, identifyingTerms:List[String]) : Boolean = {
-     load(dataResourceUid:String, fr:FullRecord, identifyingTerms:List[String], true, false, false, None)
+  def load(dataResourceUid:String, fr:FullRecord, identifyingTermsValues:List[String]) : Boolean = {
+     load(dataResourceUid:String, fr:FullRecord, identifyingTermsValues:List[String], true, false, false, None)
   }
 
-  def load(dataResourceUid:String, fr:FullRecord, identifyingTerms:List[String], updateLastModified:Boolean) : Boolean = {
-    load(dataResourceUid:String, fr:FullRecord, identifyingTerms:List[String], updateLastModified, false, false, None)
+  def load(dataResourceUid:String, fr:FullRecord, identifyingTermsValues:List[String], updateLastModified:Boolean) : Boolean = {
+    load(dataResourceUid:String, fr:FullRecord, identifyingTermsValues:List[String], updateLastModified, false, false, None)
   }
 
-  def load(dataResourceUid:String, fr:FullRecord, identifyingTerms:List[String], updateLastModified:Boolean, downloadMedia:Boolean):Boolean ={
-    load(dataResourceUid, fr, identifyingTerms, updateLastModified, downloadMedia, false, None)
+  def load(dataResourceUid:String, fr:FullRecord, identifyingTermsValues:List[String], updateLastModified:Boolean, downloadMedia:Boolean):Boolean ={
+    load(dataResourceUid, fr, identifyingTermsValues, updateLastModified, downloadMedia, false, None)
   }
 
-  def load(dataResourceUid:String, fr:FullRecord, identifyingTerms:List[String], updateLastModified:Boolean, downloadMedia:Boolean, stripSpaces:Boolean, rowKeyWriter:Option[java.io.Writer]) : Boolean = {
+  def load(dataResourceUid:String, fr:FullRecord, identifyingTermsValues:List[String], updateLastModified:Boolean, downloadMedia:Boolean, stripSpaces:Boolean, rowKeyWriter:Option[java.io.Writer]) : Boolean = {
 
     //the details of how to construct the UniqueID belong in the Collectory
-    val uniqueID = if(identifyingTerms.isEmpty) None else Some(createUniqueID(dataResourceUid,identifyingTerms,stripSpaces))
+    val uniqueID = if(identifyingTermsValues.isEmpty) None else Some(createUniqueID(dataResourceUid,identifyingTermsValues,stripSpaces))
 
     //lookup the column
     val (recordUuid, isNew) = {
