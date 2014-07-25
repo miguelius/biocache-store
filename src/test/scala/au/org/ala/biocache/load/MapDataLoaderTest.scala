@@ -15,6 +15,7 @@
 package au.org.ala.biocache.load
 
 import au.org.ala.biocache.model.Versions
+import au.org.ala.biocache.vocab.DwC
 import au.org.ala.biocache.{Config, ConfigFunSuite}
 import java.util
 import org.junit.runner.RunWith
@@ -58,12 +59,23 @@ class MapDataLoaderTest extends ConfigFunSuite {
   }
 
   test("mapper case test class -> classs") {
-    val map = Map("class"->"Arthropoda")
+    val term = DwC.matchTerm("class").get.canonical
+    val map = Map(term -> "Arthropoda")
     val fr = FullRecordMapper.createFullRecord("", map, Versions.RAW)
     expectResult("Arthropoda") {
       fr.classification.classs
     }
   }
+
+  test("mapper case test classs") {
+    val term = DwC.matchTerm("classs").get.canonical
+    val map = Map(term -> "Arthropoda")
+    val fr = FullRecordMapper.createFullRecord("", map, Versions.RAW)
+    expectResult("Arthropoda") {
+      fr.classification.classs
+    }
+  }
+
 
 
 }

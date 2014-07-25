@@ -20,7 +20,7 @@ object ReflectionCache {
        val map = new mutable.HashMap[String, Method]()
        cposo.getClass.getDeclaredFields.map(field => {
 
-         val name = if (field.getName == "classs") "class" else field.getName
+         val name = field.getName
 
          try {
            val getter = cposo.getClass.getDeclaredMethod("get" + StringUtils.capitalize(name))
@@ -48,13 +48,10 @@ object ReflectionCache {
      if (result.isEmpty) {
        val posoLookupMap = poso.getClass.getDeclaredFields.map(field => {
          val name = field.getName
-         // DwC 'class' is a special case, as it is a reserved word, so the reflective mapping breaks down
-         // we property name is mangled, but we un-mangle it here for lookup purposes
-         val lookupName = if (name == "classs") "class" else name
          try {
            val getter = poso.getClass.getDeclaredMethod("get" + StringUtils.capitalize(name))
            val setter = poso.getClass.getDeclaredMethod("set" + StringUtils.capitalize(name), field.getType)
-           Some((lookupName.toLowerCase -> ModelProperty(lookupName, field.getType.getName, getter, setter)))
+           Some((name.toLowerCase -> ModelProperty(name, field.getType.getName, getter, setter)))
          } catch {
            case e: Exception => None
          }
